@@ -22,7 +22,7 @@ Transfer files of **any size** between PCs on the same network at **full wire sp
 ## 📸 Screenshots
 
 > Fast, beautiful, and simple — transfer any file over your local network in seconds.
-
+<img src="https://github.com/bantikumarsatlokashram/LinkStream/blob/main/Screenshot.png" alt="Screenshot" width="auto" height="auto" />
 ---
 
 ## ✨ Features
