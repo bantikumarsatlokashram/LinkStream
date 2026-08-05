@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="[public/app-icon.png](https://github.com/bantikumarsatlokashram/LinkStream/blob/main/app-icon.png)" alt="LinkStream Logo" width="120" height="120" />
+<img src="https://github.com/bantikumarsatlokashram/LinkStream/blob/main/app-icon.png" alt="LinkStream Logo" width="auto" height="200px" />
 
 # LinkStream
 
