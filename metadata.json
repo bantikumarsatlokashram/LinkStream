@@ -1,0 +1,6 @@
+{
+  "name": "LAN File Share - Encrypted Cross-Platform Transfer",
+  "description": "Secure, fast, end-to-end encrypted local network file transfer application for desktop and mobile without internet connection.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
