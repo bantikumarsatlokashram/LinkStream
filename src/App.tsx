@@ -54,6 +54,19 @@ export default function App() {
   const pendingFilesRef = useRef<Map<string, { file: File; targetPeerId: string }>>(new Map());
   const speedTrackerRef = useRef<Map<string, { lastBytes: number; lastTime: number }>>(new Map());
 
+  // ── Auto Update State ──────────────────────────────────────────────────────
+  const [updateInfo, setUpdateInfo] = useState<{
+    version: string;
+    currentVersion: string;
+    downloadUrl: string;
+    fileName: string;
+    fileSize: number;
+  } | null>(null);
+  const [updateState, setUpdateState] = useState<"idle" | "downloading" | "ready">("idle");
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [updateSavePath, setUpdateSavePath] = useState<string | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+
   // Handle Toast Alerts
   const addToast = useCallback(
     (title: string, message: string, type: "info" | "success" | "warning" | "error" = "info") => {
@@ -66,6 +79,63 @@ export default function App() {
   const dismissToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
+
+  // ── Listen for update-available from main process ──────────────────────────
+  useEffect(() => {
+    const eAPI = (window as any).electronAPI;
+    if (!eAPI?.onUpdateAvailable) return;
+    eAPI.onUpdateAvailable((info: any) => {
+      setUpdateInfo(info);
+      setUpdateDismissed(false);
+    });
+    eAPI.onUpdateDownloadProgress?.((data: any) => {
+      setUpdateProgress(data.percent || 0);
+    });
+    return () => eAPI.removeUpdateListeners?.();
+  }, []);
+
+  // ── Force device name to real PC hostname on mount ──────────────────────────
+  // wsClient constructor runs at module import time (before preload is read),
+  // so we re-check and override here after React mounts.
+  useEffect(() => {
+    const hostname = (window as any).electronAPI?.hostname;
+    if (!hostname) return;
+    const current = wsClient.getDeviceName();
+    const isGeneric =
+      !current ||
+      /^(Windows|Mac|Linux|Android|iOS)\s+(Desktop|Mobile|Tablet)$/i.test(current) ||
+      current === "My Device";
+    if (isGeneric) {
+      wsClient.setDeviceName(hostname);
+      setDeviceName(hostname);
+    }
+  }, []);
+
+
+  const handleDownloadUpdate = async () => {
+    if (!updateInfo) return;
+    const eAPI = (window as any).electronAPI;
+    if (!eAPI?.downloadUpdate) return;
+    setUpdateState("downloading");
+    try {
+      const result = await eAPI.downloadUpdate({
+        downloadUrl: updateInfo.downloadUrl,
+        fileName: updateInfo.fileName,
+      });
+      setUpdateSavePath(result.savePath);
+      setUpdateState("ready");
+    } catch (err) {
+      setUpdateState("idle");
+      addToast("Update Failed", "Could not download update. Check your internet connection.", "error");
+    }
+  };
+
+  const handleInstallUpdate = () => {
+    if (!updateSavePath) return;
+    const eAPI = (window as any).electronAPI;
+    eAPI?.installUpdate({ savePath: updateSavePath });
+  };
+
 
   // Fetch Network Info
   const fetchNetworkInfo = async () => {
@@ -326,6 +396,15 @@ export default function App() {
     const offer = incomingOffer;
     setIncomingOffer(null);
 
+    console.log("[Accept] ── ACCEPT & SAVE ──");
+    console.log("[Accept] savePath:", savePath);
+    console.log("[Accept] transferId:", offer.transferId);
+    console.log("[Accept] fileName:", offer.fileName);
+    console.log("[Accept] fileSize:", offer.fileSize);
+    console.log("[Accept] senderId:", offer.senderId);
+    console.log("[Accept] electronAPI available:", !!(window as any).electronAPI);
+    console.log("[Accept] downloadToDisk available:", !!(window as any).electronAPI?.downloadToDisk);
+
     // Register transfer in UI
     const newTransfer: FileTransfer = {
       id: offer.transferId,
@@ -362,9 +441,15 @@ export default function App() {
     const tid = offer.transferId;
     const downloadUrl = `${window.location.origin}/api/transfer/download/${tid}`;
 
+    console.log("[Accept] downloadUrl:", downloadUrl);
+    console.log("[Accept] origin:", window.location.origin);
+    console.log("[Accept] savePath final:", savePath);
+
     if (electronAPI?.downloadToDisk && savePath) {
       // ── IPC path: Node.js HTTP → fs.WriteStream → disk ─────────────────────
       // Progress events come back from main process via IPC
+      console.log("[Accept] Starting electronAPI.downloadToDisk IPC call...");
+
       electronAPI.onDownloadProgress(({ transferId, received, total, speed, eta }: any) => {
         if (transferId !== tid) return;
         setTransfers((prev) =>
@@ -394,14 +479,17 @@ export default function App() {
       });
 
       try {
+        console.log("[Accept] Invoking download-to-disk IPC...");
         await electronAPI.downloadToDisk({
           downloadUrl,
           savePath,
           transferId: tid,
           fileSize: offer.fileSize,
         });
+        console.log("[Accept] downloadToDisk IPC resolved successfully");
       } catch (err: any) {
         const msg = String(err?.message || err);
+        console.error("[Accept] downloadToDisk IPC FAILED:", msg);
         electronAPI.removeDownloadListeners(tid);
         setTransfers((prev) =>
           prev.map((t) =>
@@ -410,6 +498,14 @@ export default function App() {
         );
         addToast("Transfer Failed", msg, "error");
       }
+    } else {
+      // This should never happen in packaged Electron app
+      console.error("[Accept] CRITICAL: electronAPI.downloadToDisk not available!", {
+        hasElectronAPI: !!electronAPI,
+        hasDownloadToDisk: !!electronAPI?.downloadToDisk,
+        savePath,
+      });
+      addToast("Transfer Error", "Download API not available. Is this running in Electron?", "error");
     }
   };
 
@@ -503,6 +599,55 @@ export default function App() {
       <div className="fixed -top-40 -left-40 w-[600px] h-[600px] bg-indigo-600/15 rounded-full blur-[140px] pointer-events-none" />
       <div className="fixed -bottom-40 -right-40 w-[700px] h-[700px] bg-cyan-600/15 rounded-full blur-[160px] pointer-events-none" />
       <div className="fixed top-1/3 left-1/3 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[130px] pointer-events-none" />
+
+      {/* ── Update Banner ───────────────────────────────────────────────── */}
+      {updateInfo && !updateDismissed && (
+        <div className="relative z-50 bg-gradient-to-r from-indigo-600/90 via-blue-600/90 to-cyan-600/90 backdrop-blur-sm border-b border-white/10 px-4 py-2.5 flex items-center gap-3 text-sm">
+          <span className="text-lg">🚀</span>
+          <div className="flex-1 min-w-0">
+            <span className="font-bold text-white">LinkStream v{updateInfo.version} available!</span>
+            {updateState === "downloading" && (
+              <div className="mt-1 h-1.5 bg-white/20 rounded-full overflow-hidden w-48">
+                <div
+                  className="h-full bg-white rounded-full transition-all duration-300"
+                  style={{ width: `${updateProgress}%` }}
+                />
+              </div>
+            )}
+            {updateState === "ready" && (
+              <span className="ml-2 text-cyan-200 text-xs">Download complete — click Install to update</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {updateState === "idle" && (
+              <button
+                onClick={handleDownloadUpdate}
+                className="bg-white text-indigo-700 font-bold text-xs px-3 py-1.5 rounded-lg hover:bg-cyan-100 transition-colors"
+              >
+                Download Update
+              </button>
+            )}
+            {updateState === "downloading" && (
+              <span className="text-white/70 text-xs font-mono">{updateProgress}%</span>
+            )}
+            {updateState === "ready" && (
+              <button
+                onClick={handleInstallUpdate}
+                className="bg-emerald-400 text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg hover:bg-emerald-300 transition-colors animate-pulse"
+              >
+                Install &amp; Restart
+              </button>
+            )}
+            <button
+              onClick={() => setUpdateDismissed(true)}
+              className="text-white/50 hover:text-white text-lg leading-none px-1"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <Header

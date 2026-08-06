@@ -38,22 +38,32 @@ class WebSocketClient {
     else if (isMobile) this.deviceType = "mobile";
     else this.deviceType = "desktop";
 
-    // Friendly Device Name — prefer real PC hostname (from Electron preload)
+    // Friendly Device Name — use real PC hostname (from Electron preload)
     const savedName = localStorage.getItem("lan_device_name");
-    if (savedName) {
-      this.deviceName = savedName;
-    } else {
-      // Use real Windows computer name if running in Electron
-      const electronHostname = (window as any).electronAPI?.hostname;
-      if (electronHostname) {
+    const electronHostname = (window as any).electronAPI?.hostname;
+
+    // List of generic/default names that should be replaced with real hostname
+    const isGenericName = (n: string) =>
+      !n ||
+      /^(Windows|Mac|Linux|Android|iOS)\s+(Desktop|Mobile|Tablet)$/i.test(n) ||
+      n === "My Device";
+
+    if (electronHostname) {
+      // If saved name is generic or there's no saved name, use real hostname
+      if (!savedName || isGenericName(savedName)) {
         this.deviceName = electronHostname;
         localStorage.setItem("lan_device_name", electronHostname);
       } else {
-        // Fallback for non-Electron (browser)
-        const osFormatted = this.osName.charAt(0).toUpperCase() + this.osName.slice(1);
-        const typeFormatted = this.deviceType.charAt(0).toUpperCase() + this.deviceType.slice(1);
-        this.deviceName = `${osFormatted} ${typeFormatted}`;
+        // User manually set a custom name — respect it
+        this.deviceName = savedName;
       }
+    } else if (savedName && !isGenericName(savedName)) {
+      this.deviceName = savedName;
+    } else {
+      // Fallback for non-Electron environment
+      const osFormatted = this.osName.charAt(0).toUpperCase() + this.osName.slice(1);
+      const typeFormatted = this.deviceType.charAt(0).toUpperCase() + this.deviceType.slice(1);
+      this.deviceName = `${osFormatted} ${typeFormatted}`;
     }
   }
 

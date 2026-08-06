@@ -11,6 +11,10 @@
     "public/**/*",
     "package.json"
   ],
+  "asarUnpack": [
+    "dist/**/*"
+  ],
+  "electronDist": "node_modules/electron/dist",
   "win": {
     "target": [
       {

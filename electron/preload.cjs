@@ -5,11 +5,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
   isElectron: true,
   platform: process.platform,
 
-  // Returns the real Windows computer name (e.g. "BANTI-PC" or "DESKTOP-XYZ")
+  // Real Windows computer name (e.g. "BANTI-PC", "OFFICE-DESKTOP")
   hostname: os.hostname(),
 
-  // ── File save dialog ────────────────────────────────────────────────────────
-  // Opens the native OS "Save As" dialog — returns { canceled, filePath }
+  // ── Native Windows Folder Picker ─────────────────────────────────────────────
+  // Opens the OS-native folder selection dialog (like VS Code / LocalSend).
+  // Returns { canceled: boolean, folderPath: string | null }
+  showFolderDialog: () =>
+    ipcRenderer.invoke("show-folder-dialog"),
+
+  // Validate that a folder path exists and is writable
+  validateFolder: (folderPath) =>
+    ipcRenderer.invoke("validate-folder", folderPath),
+
+  // Get user's default Downloads folder path
+  getDefaultFolder: () =>
+    ipcRenderer.invoke("get-default-folder"),
+
+  // ── File save dialog (legacy compat) ────────────────────────────────────────
   showSaveDialog: (defaultName) =>
     ipcRenderer.invoke("show-save-dialog", defaultName),
 
@@ -26,17 +39,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   removeDownloadListeners: (transferId) => {
     ipcRenderer.removeAllListeners("download-progress");
     ipcRenderer.removeAllListeners("download-complete");
-    ipcRenderer.removeAllListeners(`cancel-download-${transferId}`);
   },
 
   cancelDownload: (transferId) =>
     ipcRenderer.send(`cancel-download-${transferId}`),
 
-  // ── Native OS notification (shows even when window is hidden) ───────────────
+  // ── Native OS notification ──────────────────────────────────────────────────
   showNotification: (title, body) =>
     ipcRenderer.send("show-notification", { title, body }),
 
-  // Bring the window to front (call after showNotification so user can see it)
   bringToFront: () =>
     ipcRenderer.send("bring-to-front"),
 
@@ -46,4 +57,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   setAutoLaunch: (enabled) =>
     ipcRenderer.invoke("set-auto-launch", enabled),
+
+  // ── Auto Update ─────────────────────────────────────────────────────────────
+  onUpdateAvailable: (cb) =>
+    ipcRenderer.on("update-available", (_e, data) => cb(data)),
+
+  downloadUpdate: (opts) =>
+    ipcRenderer.invoke("download-update", opts),
+
+  onUpdateDownloadProgress: (cb) =>
+    ipcRenderer.on("update-download-progress", (_e, data) => cb(data)),
+
+  removeUpdateListeners: () => {
+    ipcRenderer.removeAllListeners("update-available");
+    ipcRenderer.removeAllListeners("update-download-progress");
+  },
+
+  installUpdate: (opts) =>
+    ipcRenderer.send("install-update", opts),
 });
